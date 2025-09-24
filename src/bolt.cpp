@@ -55,12 +55,21 @@ struct BoltModule : IModule {
 	{}
 
 	void startGame() override {
+		bt_Context* ctx = m_system.m_context;
+		m_main_thread = bt_make_thread(ctx);
 		FileSystem& fs = m_engine.getFileSystem();
-		OutputMemoryStream main_blob(m_allocator);
-		if (fs.getContentSync(Path("scripts/main.bolt"), main_blob)) {
-			main_blob.write(0);
-			bt_run(m_system.m_context, (const char*)main_blob.data());
+		OutputMemoryStream main_content(m_allocator);
+		if (fs.getContentSync(Path("scripts/main.bolt"), main_content)) {
+			main_content.write(0);
+			bt_Module* module = bt_compile_module(ctx, (const char*)main_content.data(), "scripts/main");
+			if (module && bt_execute(ctx, (bt_Callable*)module)) {
+				m_update_func = bt_module_get_export(module, BT_VALUE_CSTRING(ctx, "update"));
+			}
 		}
+	}
+
+	void stopGame() override {
+		bt_destroy_thread(m_system.m_context, m_main_thread);
 	}
 
 	const char* getName() const override { return "bolt"; }
@@ -75,12 +84,22 @@ struct BoltModule : IModule {
 	World& getWorld() override { return m_world; }
 	
 	void update(float time_delta) {
+		if (BT_IS_NULL(m_update_func)) return;
+
+		bt_Context* ctx = m_system.m_context;
+		bt_Thread* thread = m_main_thread;
+		bt_push(thread, m_update_func);
+		bt_push(thread, BT_VALUE_NUMBER(time_delta));
+		bt_call(thread, 1);
+		bt_pop(thread);
 	}
 
 	Engine& m_engine;
 	BoltSystem& m_system;
 	World& m_world;
 	TagAllocator m_allocator;
+	bt_Thread* m_main_thread = nullptr;
+	bt_Value m_update_func = BT_VALUE_NULL;
 };
 
 void BoltSystem::createModules(World& world) {
