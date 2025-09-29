@@ -56,6 +56,10 @@ DEFINE_USERDATA_NUMBER_FIELD(uint16, uint16_t)
 DEFINE_USERDATA_NUMBER_FIELD(uint32, uint32_t)
 DEFINE_USERDATA_NUMBER_FIELD(uint64, uint64_t)
 
+void bt_userdata_type_push_field(bt_Context* ctx, bt_Type* type, const char* name, uint32_t offset, bt_Type* field_type, bt_UserdataFieldGetter getter, bt_UserdataFieldSetter setter) {
+	push_userdata_field(ctx, type, name, offset, field_type, getter, setter);
+}
+
 static bt_Value userdata_get_string(bt_Context* ctx, uint8_t* userdata, uint32_t offset)
 {
 	char* data = *(char**)(userdata + offset);

@@ -13,6 +13,32 @@
 
 using namespace Lumix;
 
+namespace BoltAPI {
+
+static bt_Type* s_dvec3_type;
+static bt_Type* s_world_type;
+static bt_Type* s_entity_type;
+
+struct Entity {
+	World* world;
+	EntityRef entity;
+};
+
+static bt_Value entityGetPosition(bt_Context* ctx, uint8_t* userdata, uint32_t offset) {
+	Entity* e = (Entity*)userdata;
+	DVec3 p = e->world->getPosition(e->entity);
+	bt_Userdata* ud = bt_make_userdata(ctx, s_dvec3_type, &p, sizeof(p));
+	return BT_VALUE_OBJECT(ud);
+}
+
+static void entitySetPosition(bt_Context* ctx, uint8_t* userdata, uint32_t offset, bt_Value value) {
+	Entity* e = (Entity*)userdata;
+	bt_Userdata* ud = (bt_Userdata*)BT_AS_OBJECT(value);
+	DVec3* p = (DVec3*)BT_USERDATA_VALUE(ud);
+	e->world->setPosition(e->entity, *p);
+}
+
+}
 
 struct BoltSystem : ISystem {
 	BoltSystem(Engine& engine) : m_engine(engine) {}
@@ -30,6 +56,9 @@ struct BoltSystem : ISystem {
 		bt_Handlers handlers = bt_default_handlers();
 		handlers.write = [](bt_Context* ctx, const char* msg) {
 			logInfo(msg);
+		};
+		handlers.on_error = [](bt_ErrorType type, const char* module, const char* message, uint16_t line, uint16_t col){
+			logError(module, "(", line, ",", col, "): ", message);
 		};
 		bt_open(&m_context, &handlers);
 		boltstd_open_all(m_context);
@@ -54,8 +83,30 @@ struct BoltModule : IModule {
 		, m_allocator(allocator, "bolt")
 	{}
 
+	void registerLumixModule() {
+		bt_Context* ctx = m_system.m_context;
+		bt_Module* module = bt_make_module(ctx);
+		BoltAPI::s_world_type = bt_make_userdata_type(ctx, "World");
+
+		bt_Type* number_type = bt_type_number(ctx);
+		bt_Type* string_type = bt_type_string(ctx);
+
+		BoltAPI::s_dvec3_type = bt_make_tableshape_type(ctx, "DVec3", BT_TRUE);
+		bt_tableshape_add_layout(ctx, BoltAPI::s_dvec3_type, string_type, BT_VALUE_CSTRING(ctx, "x"), number_type);
+
+		bt_module_export(ctx, module, bt_make_alias_type(ctx, "DVec3", BoltAPI::s_dvec3_type), BT_VALUE_CSTRING(ctx, "DVec3"), bt_value((bt_Object*)BoltAPI::s_dvec3_type));
+		bt_module_set_storage(module, BT_VALUE_CSTRING(ctx, "DVec3"), bt_value((bt_Object*)BoltAPI::s_dvec3_type));
+
+		bt_Type* entity_type = bt_make_userdata_type(ctx, "Entity");
+		bt_userdata_type_push_field(ctx, entity_type, "position", 0, BoltAPI::s_dvec3_type, BoltAPI::entityGetPosition, BoltAPI::entitySetPosition);
+	
+		bt_register_module(ctx, BT_VALUE_CSTRING(ctx, "lumix"), module);
+	}
+
 	void startGame() override {
 		bt_Context* ctx = m_system.m_context;
+		registerLumixModule();
+
 		m_main_thread = bt_make_thread(ctx);
 		FileSystem& fs = m_engine.getFileSystem();
 		OutputMemoryStream main_content(m_allocator);
